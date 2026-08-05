@@ -13,6 +13,7 @@ import {
   Redo2,
   Ungroup,
   Undo2,
+  Users,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -27,10 +28,14 @@ import { extractModule } from "@/lib/modules";
 import { emptyCanvas } from "@/lib/nodes";
 import { repo } from "@/lib/repo";
 import { useBindings } from "@/hooks/use-bindings";
+import { usePresence } from "@/hooks/use-presence";
+import { useDocSync } from "@/hooks/use-doc-sync";
+import { useRepoQuery } from "@/hooks/use-repo";
+import { HistoryDialog } from "@/components/editor/history-dialog";
 import { ShortcutsDialog } from "@/components/editor/shortcuts-dialog";
 import type { Bindings } from "@/lib/shortcuts";
 import { MODULE_KIND_META } from "@/lib/module-kinds";
-import type { Module, ModuleKind } from "@/lib/types";
+import type { CanvasVersion, Module, ModuleKind } from "@/lib/types";
 import { canRedo, canUndo, useEditorStore } from "@/store/editor-store";
 import { InfiniteCanvas } from "@/components/canvas/infinite-canvas";
 import { TokenProvider } from "@/components/canvas/tokens-context";
@@ -58,6 +63,10 @@ export function ModuleEditorShell({ module }: { module: Module }) {
 
   const [name, setName] = useState(module.name);
   const bindings = useBindings();
+  const { data: prefs } = useRepoQuery(() => repo.getPreferences(), []);
+  const collaborating = prefs?.collaboration ?? false;
+  const { peers, report } = usePresence(module.id, collaborating);
+  useDocSync(module.id, collaborating);
 
   const viewportWidth = useEditorStore((s) => s.viewportSize.w);
   const fittedRef = useRef<string | null>(null);
@@ -99,7 +108,14 @@ export function ModuleEditorShell({ module }: { module: Module }) {
           rootId: extracted.rootId,
           size: extracted.size,
         })
-        .then(() => useEditorStore.getState().markSaved())
+        .then(() => {
+          useEditorStore.getState().markSaved();
+          return repo
+            .captureVersion("module", module.id, state.doc, {
+              separate: state.versionBoundary,
+            })
+            .then(() => useEditorStore.getState().clearVersionBoundary());
+        })
         .catch((err: unknown) => {
           toast.error(
             err instanceof Error ? err.message : "Could not save this module",
@@ -125,6 +141,13 @@ export function ModuleEditorShell({ module }: { module: Module }) {
           kind={module.kind}
           dirty={dirty}
           bindings={bindings}
+          moduleId={module.id}
+          peerCount={peers.length}
+          onRestore={(version) => {
+            const store = useEditorStore.getState();
+            store.beginHistory();
+            store.replaceCanvas(version.canvas);
+          }}
         />
 
         <div className="flex min-h-0 flex-1">
@@ -148,7 +171,12 @@ export function ModuleEditorShell({ module }: { module: Module }) {
           </aside>
 
           <div className="min-w-0 flex-1">
-            <InfiniteCanvas className="h-full w-full" bindings={bindings} />
+            <InfiniteCanvas
+              className="h-full w-full"
+              bindings={bindings}
+              peers={peers}
+              onPresence={report}
+            />
           </div>
 
           <aside className="w-64 shrink-0 border-l bg-background">
@@ -198,6 +226,9 @@ function ModuleToolbar({
   kind,
   dirty,
   bindings,
+  moduleId,
+  peerCount,
+  onRestore,
 }: {
   name: string;
   onNameChange: (next: string) => void;
@@ -205,6 +236,9 @@ function ModuleToolbar({
   kind: ModuleKind;
   dirty: boolean;
   bindings: Bindings;
+  moduleId: string;
+  peerCount: number;
+  onRestore: (version: CanvasVersion) => void;
 }) {
   const meta = MODULE_KIND_META[kind];
   const tool = useEditorStore((s) => s.tool);
@@ -300,6 +334,12 @@ function ModuleToolbar({
       </ToolButton>
 
       <div className="ml-auto flex items-center gap-1">
+        {peerCount > 0 ? (
+          <span className="mr-1 flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            <Users className="size-3" />
+            {peerCount + 1}
+          </span>
+        ) : null}
         <span
           title={meta.blurb}
           className="mr-1 flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground"
@@ -340,6 +380,11 @@ function ModuleToolbar({
         <ToolButton label="Zoom to fit — 1" onClick={() => store().zoomToFit()}>
           <Maximize className="size-3.5" />
         </ToolButton>
+        <HistoryDialog
+          targetType="module"
+          targetId={moduleId}
+          onRestore={onRestore}
+        />
         <ShortcutsDialog bindings={bindings} />
       </div>
     </header>

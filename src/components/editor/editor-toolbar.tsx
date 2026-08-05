@@ -22,6 +22,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { canRedo, canUndo, useEditorStore } from "@/store/editor-store";
 import { LocaleSwitcher } from "@/components/editor/locale-switcher";
 import { ShortcutsDialog } from "@/components/editor/shortcuts-dialog";
+import { HistoryDialog } from "@/components/editor/history-dialog";
+import { Users } from "lucide-react";
+import type { CanvasVersion } from "@/lib/types";
 import type { Bindings } from "@/lib/shortcuts";
 import type { Campaign, Project, TypeDocument } from "@/lib/types";
 
@@ -60,11 +63,15 @@ export function EditorToolbar({
   campaign,
   document,
   bindings,
+  peerCount,
+  onRestore,
 }: {
   project: Project;
   campaign: Campaign;
   document: TypeDocument;
   bindings: Bindings;
+  peerCount: number;
+  onRestore: (version: CanvasVersion) => void;
 }) {
   const campaignPath = `/p/${project.slug}/email/${campaign.slug}`;
 
@@ -169,6 +176,12 @@ export function EditorToolbar({
       </ToolButton>
 
       <div className="ml-auto flex items-center gap-1">
+        {peerCount > 0 ? (
+          <span className="mr-1 flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            <Users className="size-3" />
+            {peerCount + 1}
+          </span>
+        ) : null}
         <span
           className={cn(
             "mr-1 text-[10px] uppercase tracking-wider",
@@ -202,6 +215,11 @@ export function EditorToolbar({
         <ToolButton label="Zoom to fit — 1" onClick={() => store().zoomToFit()}>
           <Maximize className="size-3.5" />
         </ToolButton>
+        <HistoryDialog
+          targetType="document"
+          targetId={document.id}
+          onRestore={onRestore}
+        />
         <ShortcutsDialog bindings={bindings} />
       </div>
     </header>

@@ -10,6 +10,7 @@ import { CreateProjectDialog } from "@/components/app/create-dialogs";
 import { EmptyState } from "@/components/app/empty-state";
 import { NavigationTree } from "@/components/app/navigation-tree";
 import { ScheduleHeatmap } from "@/components/app/schedule-heatmap";
+import { SettingsDialog } from "@/components/app/settings-dialog";
 import { Button } from "@/components/ui/button";
 import { useRepoQuery } from "@/hooks/use-repo";
 import { repo, resetToSeed } from "@/lib/repo";
@@ -37,6 +38,7 @@ export default function ProjectsPage() {
               <RotateCcw className="size-3.5" />
               Reset demo data
             </Button>
+            <SettingsDialog />
             <Button asChild variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
               <Link href="/modules">
                 <Boxes className="size-3.5" />

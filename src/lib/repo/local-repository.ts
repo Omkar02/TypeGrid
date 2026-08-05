@@ -12,6 +12,7 @@ import type {
   Campaign,
   CanvasDoc,
   CanvasNode,
+  CanvasVersion,
   IsoDate,
   Module,
   Project,
@@ -19,6 +20,7 @@ import type {
   Tenant,
   TypeDocument,
   UserPreferences,
+  VersionTargetType,
 } from "@/lib/types";
 import type {
   AddLocalesOptions,
@@ -39,6 +41,7 @@ const STORAGE_KEY = "typegrid:v2";
 
 interface Db {
   preferences: UserPreferences;
+  versions: CanvasVersion[];
   tenants: Tenant[];
   projects: Project[];
   campaigns: Campaign[];
@@ -46,13 +49,37 @@ interface Db {
   modules: Module[];
 }
 
+export const DEFAULT_VERSION_LIMIT = 10;
+/** Versions saved within this window fold into the previous one. */
+const VERSION_COALESCE_MS = 45_000;
+
 export function blankPreferences(): UserPreferences {
-  return { shortcuts: {} };
+  return {
+    shortcuts: {},
+    versionLimit: DEFAULT_VERSION_LIMIT,
+    collaboration: false,
+  };
+}
+
+/**
+ * FNV-1a over the serialised canvas. Fast, allocation-light, and good enough to
+ * answer the only question asked of it: "is this the same content as last
+ * time?" A collision would cost one skipped version, not corruption.
+ */
+function fingerprintCanvas(canvas: CanvasDoc): string {
+  const json = JSON.stringify(canvas);
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < json.length; i++) {
+    hash ^= json.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36) + ":" + json.length.toString(36);
 }
 
 function blankDb(): Db {
   return {
     preferences: blankPreferences(),
+    versions: [],
     tenants: [],
     projects: [],
     campaigns: [],
@@ -108,9 +135,7 @@ export class LocalRepository implements Repository {
       if (!raw) return blankDb();
       const parsed = JSON.parse(raw) as Partial<Db>;
       return {
-        preferences: {
-          shortcuts: parsed.preferences?.shortcuts ?? {},
-        },
+        preferences: { ...blankPreferences(), ...(parsed.preferences ?? {}) },
         // Stores written before the tenant abstraction have none; synthesise
         // the implicit one rather than forcing a migration.
         tenants:
@@ -123,6 +148,7 @@ export class LocalRepository implements Repository {
           tenantId: p.tenantId ?? DEFAULT_TENANT_ID,
           color: isProjectColor(p.color) ? p.color : DEFAULT_PROJECT_COLOR,
         })),
+        versions: parsed.versions ?? [],
         campaigns: parsed.campaigns ?? [],
         // `releaseAt` was added after v2 shipped. Defaulting it on read keeps
         // older stores readable without a version bump or a migration step.
@@ -173,6 +199,85 @@ export class LocalRepository implements Repository {
     db.preferences = { ...db.preferences, ...patch };
     this.write(db);
     return db.preferences;
+  }
+
+  // -- Versions -------------------------------------------------------------
+
+  async listVersions(
+    targetType: VersionTargetType,
+    targetId: string,
+  ): Promise<CanvasVersion[]> {
+    return this.read()
+      .versions.filter(
+        (v) => v.targetType === targetType && v.targetId === targetId,
+      )
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async captureVersion(
+    targetType: VersionTargetType,
+    targetId: string,
+    canvas: CanvasDoc,
+    options: { separate?: boolean } = {},
+  ): Promise<CanvasVersion | null> {
+    const db = this.read();
+    const ts = nowIso();
+    const fingerprint = fingerprintCanvas(canvas);
+
+    const mine = db.versions
+      .filter((v) => v.targetType === targetType && v.targetId === targetId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const newest = mine[0];
+
+    // Nothing actually changed — autosave fires on plenty of no-ops.
+    if (newest && newest.fingerprint === fingerprint) return null;
+
+    // Still inside the same editing burst: fold into the previous entry rather
+    // than spending a slot every few seconds of typing.
+    if (
+      newest &&
+      !options.separate &&
+      Date.now() - new Date(newest.updatedAt).getTime() < VERSION_COALESCE_MS
+    ) {
+      const target = db.versions.find((v) => v.id === newest.id)!;
+      target.canvas = canvas;
+      target.fingerprint = fingerprint;
+      target.updatedAt = ts;
+      this.write(db);
+      return target;
+    }
+
+    const version: CanvasVersion = {
+      id: newId("ver"),
+      targetType,
+      targetId,
+      canvas,
+      fingerprint,
+      createdAt: ts,
+      updatedAt: ts,
+    };
+    db.versions.push(version);
+
+    // Keep only the newest `versionLimit` for this target.
+    const limit = Math.max(1, db.preferences.versionLimit ?? DEFAULT_VERSION_LIMIT);
+    const keep = new Set(
+      db.versions
+        .filter((v) => v.targetType === targetType && v.targetId === targetId)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, limit)
+        .map((v) => v.id),
+    );
+    db.versions = db.versions.filter(
+      (v) =>
+        !(v.targetType === targetType && v.targetId === targetId) || keep.has(v.id),
+    );
+
+    this.write(db);
+    return version;
+  }
+
+  async getVersion(id: string): Promise<CanvasVersion | null> {
+    return this.read().versions.find((v) => v.id === id) ?? null;
   }
 
   // -- Tenant ---------------------------------------------------------------

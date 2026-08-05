@@ -190,6 +190,32 @@ export interface CanvasDoc {
 export interface UserPreferences {
   /** Shortcut id -> combo. Only overrides; defaults live in `lib/shortcuts`. */
   shortcuts: Record<string, string>;
+  /** How many versions to keep per document or module. */
+  versionLimit: number;
+  /** Whether to broadcast presence and show other people's cursors. */
+  collaboration: boolean;
+  /** Name shown on this session's cursor to others. */
+}
+
+/** What a version belongs to. Modules store their subtree as a canvas too. */
+export type VersionTargetType = "document" | "module";
+
+/**
+ * A point-in-time canvas, kept so edits can be scrubbed and reverted.
+ *
+ * There is no stored screenshot: the thumbnail is rendered from `canvas` on
+ * demand. A raster image would be far larger than the data that produced it,
+ * and would drift from the model the moment rendering changed.
+ */
+export interface CanvasVersion {
+  id: string;
+  targetType: VersionTargetType;
+  targetId: string;
+  canvas: CanvasDoc;
+  /** Content hash — how "only version on a real change" is decided. */
+  fingerprint: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /**

@@ -903,6 +903,132 @@ reading as noise.
 
 ---
 
+## 2026-08-05 15:40 IST — Version history, and cursors for two people
+
+### A version is an editing session, not a keystroke
+
+"Keep the last 10" is only useful if a version means something. Autosave fires
+every second and a half; ten of those is fifteen seconds of history, which is
+worse than useless because it looks like history and isn't.
+
+Two rules make the slots count, both in `captureVersion`:
+
+- **Fingerprint first.** The canvas is hashed (FNV-1a over the ordered node
+  list, plus a length term). Same hash as the newest version means nothing
+  actually changed — autosave fires on plenty of no-ops, and every one of them
+  would otherwise cost a slot. Return `null`, write nothing.
+- **Coalesce inside a burst.** A save less than 45s after the newest version
+  folds into it: content and `updatedAt` replaced, `createdAt` kept. Dragging a
+  button around for two minutes is one decision and reads as one entry.
+
+So the limit really is "the last N times you sat down and changed this", which
+is the thing a person means when they ask for ten versions back.
+
+### Restore has to break the burst
+
+The first cut had a data-loss hole. Restore replaces the canvas and marks it
+dirty; autosave fires 1.5s later, well inside the coalesce window; the restored
+content folds into the newest version — and the state you restored *from* is
+gone from history. Undo still had it in memory, but history had quietly eaten a
+version.
+
+`replaceCanvas` now sets a one-shot `versionBoundary` flag on the store, which
+the shells pass to `captureVersion` as `separate: true` and clear afterwards.
+Verified in the browser: restore 26s after the previous version (well inside the
+window) produced a new entry with the pre-restore state intact above it.
+
+### Screenshots without screenshots
+
+The ask was for saved screenshots. Storing images would mean rasterising the
+canvas on every capture and carrying base64 PNGs in the same localStorage budget
+as the documents. The snapshot *is* the canvas, so `CanvasThumbnail` re-renders
+it live from the stored nodes — no encoding, no storage cost, and it stays sharp
+at any preview size. It also survives the Firebase move unchanged, where storing
+images would have needed a bucket.
+
+`CanvasThumbnail` grew a `fit="contain"` mode for this. Card thumbnails crop tall
+canvases from the top, which is right for a card; in history that hid the very
+change you opened the dialog to see — the first test moved an element off the
+bottom and both previews looked identical.
+
+### Presence: a transport, not a fake
+
+Multi-user is real today over `BroadcastChannel` — two tabs or two windows on
+one machine — behind a `PresenceTransport` interface that Firebase implements
+later without the UI knowing. Nothing here simulates a second user.
+
+- **Cursors travel in world coordinates.** Screen pixels would land somewhere
+  else entirely on a differently-panned view. Verified by clicking a button in
+  one tab and watching the peer cursor sit on that same button in the other.
+- **FIFO means per-sender.** `BroadcastChannel` is ordered per sender, which is
+  the only ordering that exists and the only one that matters; each frame also
+  carries a `seq`, so a slow listener drops frames it has already superseded
+  rather than replaying stale positions.
+- **Leaving is announced, and also detected.** `pagehide` broadcasts a leave so
+  the cursor vanishes at once; a 2s sweep drops peers unheard-from for 6s, since
+  a killed tab never gets to say goodbye.
+
+### No name field
+
+The first version asked for a display name in settings. Sign-in will supply that
+later, so the field was one more thing to fill in and then have overwritten.
+Identity is generated per tab — colour derived from the session id, label
+`"<Colour> editor"` — and `name` stays in `PresenceState` so auth becomes a
+one-line change in `createSessionIdentity`.
+
+Both features are off by default: collaboration is a checkbox in settings
+(verified off = no cursors, no peer chip), and the version limit is a slider,
+1–50, applied per target on the next capture. Dropping it to 3 pruned a
+6-version document to 3 on the next save and left the module's 2 alone.
+
+---
+
+## 2026-08-05 16:25 IST — Live document sync, not just cursors
+
+**Why.** Cursors alone are theatre: you can watch someone point at a button they
+just moved and still not see it move. Two windows on one document have to *be*
+one document.
+
+**Whole frames, not patches.** Every local change publishes the entire canvas,
+throttled to 100ms with a trailing frame so the end of a drag is never the frame
+that gets dropped. At this document size a frame is a few kilobytes of structured
+clone, and full state is self-correcting: a listener that missed a frame is right
+again after the next one, where a dropped patch would leave it permanently wrong.
+The price is the merge model — see below.
+
+**What is *not* sent.** Only dirty docs. Loading a document also assigns `doc`,
+and broadcasting that would push a just-read canvas over a peer's unsaved edits.
+And the frame we just applied is remembered by reference, so applying a peer's
+canvas cannot echo back out as if it were a local edit. Measured: an idle room
+carries zero frames.
+
+**Incoming edits wait for a gap.** Applying a canvas mid-gesture or mid-typing
+yanks the document out from under the user's hands — the drag fights the incoming
+frames, and a `contentEditable` loses whatever was being typed into it. The store
+now carries `interacting` (set for the length of a pointer gesture) and already
+carried `editingId`; while either is live, the newest frame is held. It lands the
+moment both clear. If the local user edited *after* that frame arrived, it is
+dropped instead of applied, because it is older than what is on screen.
+
+**`applyRemoteCanvas`, not `replaceCanvas`.** Remote frames record no history and
+do not mark the document dirty. Undo should walk back your own edits, not someone
+else's, and the tab that made a change owns saving it — otherwise every window
+would race to write the same canvas and each would spend a version slot.
+Selection, hover, isolation and editing state are kept but filtered to ids that
+still exist, since a peer can delete what you were holding.
+
+**Merge model, stated plainly.** Whole-canvas frames mean last-writer-wins.
+Two people on different parts of a document stay in sync; two people dragging the
+same button resolve to whoever moved last. Real concurrent merging needs a CRDT
+or OT layer, which is a different feature, not a tweak to this one.
+
+**Verified in two tabs**: drags both directions, inline text propagating as it is
+typed, a delete and its undo, a frame correctly held while the inline editor was
+open and applied on Escape with the typed text intact, and no echo traffic at
+rest.
+
+---
+
 ## Open questions / not yet built
 
 - **HTML email export.** The hard one, per the free-positioning trade-off above.
@@ -917,7 +1043,15 @@ reading as noise.
   tracks whether a document actually shipped, and there is no status
   (draft/approved/sent) or reminder when a date passes.
 - **Drag-to-reschedule** on the calendar, and a filter by campaign or locale.
-- **Firebase migration.** Interface is ready; implementation is not.
+- **Firebase migration.** Interface is ready; implementation is not. Presence
+  is the same story: `PresenceTransport` is implemented over `BroadcastChannel`,
+  so collaboration is same-machine only until a hosted backend lands.
+- **No merge on concurrent edits.** Changes stream between windows, but the unit
+  is the whole canvas, so simultaneous edits to the same node resolve to whoever
+  moved last rather than merging. A CRDT or OT layer is the other half.
+- **Remote edits are invisible to undo.** A peer's change cannot be undone
+  locally, and a local undo can roll back over one. Correct for "undo my own
+  work", wrong if you expected a shared timeline.
 - **Linked module instances.** `moduleId` is recorded but unused.
 - **Alignment guides / distribute.** Only grid snapping exists today.
 - **Multi-select resize.** Deliberately omitted, see 13:00 entry.

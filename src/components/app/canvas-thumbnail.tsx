@@ -6,13 +6,25 @@ import { canvasBounds, collectSubtree } from "@/lib/nodes";
 import { type CanvasDoc, isComponentNode } from "@/lib/types";
 import { EntityView } from "@/components/canvas/entity-view";
 
-/** Non-interactive preview of a whole template canvas, scaled to fit `height`. */
+/**
+ * Non-interactive preview of a whole template canvas.
+ *
+ * `fit="width"` (the default) scales to the width and crops anything tall, the
+ * way a card thumbnail should. `fit="contain"` scales the whole canvas into the
+ * box instead — version history needs it, because a change that moved something
+ * off the bottom is exactly the change you opened the dialog to look at.
+ */
 export function CanvasThumbnail({
   canvas,
   height = 132,
+  width,
+  fit = "width",
 }: {
   canvas: CanvasDoc;
   height?: number;
+  /** Assumed box width. Defaults to a 1.6 ratio against `height`. */
+  width?: number;
+  fit?: "width" | "contain";
 }) {
   const bounds = useMemo(() => canvasBounds(canvas), [canvas]);
   const order = useMemo(() => {
@@ -32,8 +44,11 @@ export function CanvasThumbnail({
     );
   }
 
-  // Fit on width; tall canvases simply crop from the top, like a real preview.
-  const scale = Math.min(1, (height * 1.6) / bounds.w);
+  const boxWidth = width ?? height * 1.6;
+  const scale =
+    fit === "contain"
+      ? Math.min(1, boxWidth / bounds.w, height / bounds.h)
+      : Math.min(1, boxWidth / bounds.w);
 
   return (
     <div
@@ -41,12 +56,15 @@ export function CanvasThumbnail({
       style={{ height, background: canvas.background }}
     >
       <div
-        className="absolute left-1/2 top-0"
+        className={fit === "contain" ? "absolute left-1/2 top-1/2" : "absolute left-1/2 top-0"}
         style={{
           width: bounds.w,
           height: bounds.h,
-          transform: `translateX(-50%) scale(${scale})`,
-          transformOrigin: "top center",
+          transform:
+            fit === "contain"
+              ? `translate(-50%, -50%) scale(${scale})`
+              : `translateX(-50%) scale(${scale})`,
+          transformOrigin: fit === "contain" ? "center" : "top center",
         }}
       >
         {order.map((id) => {

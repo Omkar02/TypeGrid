@@ -2,6 +2,7 @@ import type { ProjectColor } from "@/lib/colors";
 import type {
   Campaign,
   CanvasDoc,
+  CanvasVersion,
   IsoDate,
   MetadataField,
   Module,
@@ -10,6 +11,7 @@ import type {
   Tenant,
   TypeDocument,
   UserPreferences,
+  VersionTargetType,
 } from "@/lib/types";
 
 /**
@@ -27,6 +29,25 @@ export interface Repository {
   // Preferences
   getPreferences(): Promise<UserPreferences>;
   updatePreferences(patch: Partial<UserPreferences>): Promise<UserPreferences>;
+
+  // Versions
+  listVersions(
+    targetType: VersionTargetType,
+    targetId: string,
+  ): Promise<CanvasVersion[]>;
+  /**
+   * Records the canvas if it differs from the newest version. Returns null when
+   * nothing changed. Saves inside the same editing burst fold into the previous
+   * entry instead of consuming a slot; pass `separate` to force a fresh entry,
+   * which a restore needs so the state it was restored *from* survives.
+   */
+  captureVersion(
+    targetType: VersionTargetType,
+    targetId: string,
+    canvas: CanvasDoc,
+    options?: { separate?: boolean },
+  ): Promise<CanvasVersion | null>;
+  getVersion(id: string): Promise<CanvasVersion | null>;
 
   // Projects
   listProjects(): Promise<Project[]>;

@@ -100,6 +100,34 @@ a global module stays the same everywhere. Select one and use **Detach to edit
 here** to turn it into a plain copy. Delete a module and its instances keep
 their artwork — they simply detach.
 
+**Go back in time.** The clock button in the editor toolbar opens **version
+history** — for documents and for modules alike. Drag the timeline to scrub
+through saved states, preview each one, and restore the one you want (restoring
+is a normal edit, so `⌘Z` undoes it).
+
+Versions are recorded on save, but only when something actually changed, and
+edits made in the same burst fold into one entry — so history reads as "the last
+N times you changed this", not the last N keystrokes. **Settings** on the home
+page sets how many to keep, 1–50, applied per document and per module.
+
+**Work alongside someone.** Turn on **multi-user editing** in Settings and
+everyone in the same document or module edits it together: **changes appear live
+in every open window**, and each person's cursor shows where they are, in its own
+colour. Positions travel in canvas coordinates, so a cursor lands on the same
+element no matter how each person has panned or zoomed, and the toolbar shows how
+many of you are in the room.
+
+Incoming changes wait while you are mid-drag or typing inline, then land when you
+let go — so nobody's edit is yanked out from under their hands. Only the window
+that made a change saves it, so version history stays one stream.
+
+Today this works across tabs and windows on one machine, over `BroadcastChannel`;
+the transport is an interface, so a hosted backend extends it across machines
+without touching the UI. The merge model is last-writer-wins on the whole canvas:
+two people working on *different* parts stay in sync, but simultaneous edits to
+the same thing resolve to whoever moved last, and undo walks back your own edits
+only.
+
 ## Canvas shortcuts
 
 Press the keyboard button in the editor toolbar for the full grid — every
@@ -131,8 +159,8 @@ aspect ratio.
 src/
   app/                     routes; the editor is email/[campaignSlug]/[locale]
   components/
-    canvas/                infinite canvas, entity renderers, token context
-    editor/                toolbar, locale switcher, palette, layers, inspector
+    canvas/                infinite canvas, entity renderers, peer cursors
+    editor/                toolbar, locale switcher, palette, layers, history
     app/                   list-page chrome, navigation tree, dialogs, schedule
   lib/
     types.ts               domain model
@@ -142,6 +170,9 @@ src/
     geometry.ts            viewport maths, resize handles
     nodes.ts               entity blueprints, tree walking, transforms
     modules.ts             extract a selection into a reusable subtree
+    presence.ts            multi-user cursors: transport, identity, colours
+    doc-sync.ts            live canvas sync between editors in the same room
+    shortcuts.ts           the rebindable keyboard map
     repo/                  Repository interface + localStorage implementation
   store/editor-store.ts    Zustand + Immer canvas state, history, mutations
 ```
@@ -152,6 +183,12 @@ Everything lives in `localStorage` under `typegrid:v2`, behind the `Repository`
 interface in `src/lib/repo/repository.ts`. Moving to Firebase means writing a
 second implementation of that interface and changing one line in
 `src/lib/repo/index.ts`.
+
+Version snapshots live in the same store, as canvases rather than images — the
+preview re-renders the saved nodes, so history costs no extra storage and stays
+sharp at any size. Presence and live sync are deliberately *not* in the
+repository: they are ephemeral, and live behind `PresenceTransport`
+(`src/lib/presence.ts`) and `DocSyncTransport` (`src/lib/doc-sync.ts`).
 
 ## Design log
 

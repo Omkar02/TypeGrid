@@ -417,6 +417,7 @@ export function buildSeedDb(): Db {
 
   return {
     preferences: blankPreferences(),
+    versions: [],
     tenants: [tenant],
     projects: [project],
     campaigns: [welcome, passwordReset],

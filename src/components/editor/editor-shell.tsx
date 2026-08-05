@@ -5,6 +5,8 @@ import { toast } from "sonner";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useBindings } from "@/hooks/use-bindings";
+import { usePresence } from "@/hooks/use-presence";
+import { useDocSync } from "@/hooks/use-doc-sync";
 import { useRepoQuery } from "@/hooks/use-repo";
 import { syncLinkedInstances } from "@/lib/modules";
 import { repo } from "@/lib/repo";
@@ -32,6 +34,10 @@ export function EditorShell({
 }) {
   const [saveModuleOpen, setSaveModuleOpen] = useState(false);
   const bindings = useBindings();
+  const { data: prefs } = useRepoQuery(() => repo.getPreferences(), []);
+  const collaborating = prefs?.collaboration ?? false;
+  const { peers, report } = usePresence(document.id, collaborating);
+  useDocSync(document.id, collaborating);
 
   const doc = useEditorStore((s) => s.doc);
   const dirty = useEditorStore((s) => s.dirty);
@@ -74,7 +80,16 @@ export function EditorShell({
 
       void repo
         .saveCanvas(document.id, state.doc)
-        .then(() => useEditorStore.getState().markSaved())
+        .then(() => {
+          useEditorStore.getState().markSaved();
+          // Version *after* the save succeeds, so history never contains a
+          // state the document itself never reached.
+          return repo
+            .captureVersion("document", document.id, state.doc, {
+              separate: state.versionBoundary,
+            })
+            .then(() => useEditorStore.getState().clearVersionBoundary());
+        })
         .catch((err: unknown) => {
           // The document can legitimately vanish underneath us — "reset demo
           // data", or a locale removed in another tab. Surface it instead of
@@ -101,6 +116,12 @@ export function EditorShell({
           campaign={campaign}
           document={document}
           bindings={bindings}
+          peerCount={peers.length}
+          onRestore={(version) => {
+            const store = useEditorStore.getState();
+            store.beginHistory();
+            store.replaceCanvas(version.canvas);
+          }}
         />
 
         <div className="flex min-h-0 flex-1">
@@ -133,7 +154,12 @@ export function EditorShell({
           </aside>
 
           <div className="min-w-0 flex-1">
-            <InfiniteCanvas className="h-full w-full" bindings={bindings} />
+            <InfiniteCanvas
+              className="h-full w-full"
+              bindings={bindings}
+              peers={peers}
+              onPresence={report}
+            />
           </div>
 
           <aside className="w-64 shrink-0 border-l bg-background">

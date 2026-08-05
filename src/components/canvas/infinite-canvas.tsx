@@ -52,6 +52,8 @@ import { useEditorStore } from "@/store/editor-store";
 import { EntityView } from "@/components/canvas/entity-view";
 import { RichTextEditor } from "@/components/canvas/rich-text-editor";
 import { StackOverlay } from "@/components/canvas/stack-overlay";
+import { PresenceCursors } from "@/components/canvas/presence-cursors";
+import type { PresenceState } from "@/lib/presence";
 
 export const ENTITY_DRAG_TYPE = "application/x-typegrid-entity";
 export const MODULE_DRAG_TYPE = "application/x-typegrid-module";
@@ -178,9 +180,17 @@ function isTypingTarget(target: EventTarget | null): boolean {
 export function InfiniteCanvas({
   className,
   bindings,
+  peers = [],
+  onPresence,
 }: {
   className?: string;
   bindings: Bindings;
+  peers?: PresenceState[];
+  /** Called with the pointer in world coords so peers land on the same spot. */
+  onPresence?: (
+    cursor: { x: number; y: number } | null,
+    selection: string[],
+  ) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<Gesture | null>(null);
@@ -270,6 +280,9 @@ export function InfiniteCanvas({
         e.button === 1 || store.tool === "hand" || store.spacePanning;
 
       containerRef.current?.setPointerCapture(e.pointerId);
+      // Held for the length of the gesture so collaboration knows to queue
+      // incoming frames rather than replace the canvas under the pointer.
+      store.setInteracting(true);
 
       if (wantsPan) {
         gestureRef.current = {
@@ -390,6 +403,8 @@ export function InfiniteCanvas({
     (e: React.PointerEvent<HTMLDivElement>) => {
       const gesture = gestureRef.current;
       const store = useEditorStore.getState();
+
+      onPresence?.(worldPoint(e), store.selection);
 
       if (!gesture) {
         const nodeEl = (e.target as HTMLElement).closest<HTMLElement>(
@@ -522,7 +537,7 @@ export function InfiniteCanvas({
         framesForResize(gesture.startNodes, gesture.id, gesture.startFrame, next),
       );
     },
-    [localPoint, worldPoint],
+    [localPoint, worldPoint, onPresence],
   );
 
   const endGesture = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -533,6 +548,7 @@ export function InfiniteCanvas({
       useEditorStore.getState().setMarquee(null);
     }
     gestureRef.current = null;
+    useEditorStore.getState().setInteracting(false);
   }, []);
 
   const onDoubleClick = useCallback(
@@ -831,7 +847,10 @@ export function InfiniteCanvas({
       onPointerMove={onPointerMove}
       onPointerUp={endGesture}
       onPointerCancel={endGesture}
-      onPointerLeave={() => useEditorStore.getState().setHovered(null)}
+      onPointerLeave={() => {
+        useEditorStore.getState().setHovered(null);
+        onPresence?.(null, useEditorStore.getState().selection);
+      }}
       onDoubleClick={onDoubleClick}
       onDragOver={onDragOver}
       onDrop={onDrop}
@@ -932,6 +951,8 @@ export function InfiniteCanvas({
           />
         ) : null}
       </svg>
+
+      <PresenceCursors peers={peers} viewport={viewport} />
 
       <StackOverlay />
 

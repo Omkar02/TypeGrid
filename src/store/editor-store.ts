@@ -66,6 +66,12 @@ interface EditorState {
   duplicateOnDrag: boolean;
   marquee: Rect | null;
   /**
+   * True while a pointer gesture is in progress. Collaboration reads it to hold
+   * incoming frames back: replacing the canvas mid-drag would have the local
+   * gesture and the remote edit fighting over the same nodes.
+   */
+  interacting: boolean;
+  /**
    * Bumped on every z-order change. The stack overlay watches it rather than
    * holding derived data — the sibling list it draws is always recomputed from
    * the document, so it cannot go stale.
@@ -86,6 +92,21 @@ interface EditorActions {
   markSaved: () => void;
   /** Flags unsaved changes made outside the normal mutation actions. */
   markDirty: () => void;
+  /** Swaps the canvas contents while keeping viewport and history — used by
+   *  version restore, which should be undoable like any other edit. */
+  replaceCanvas: (canvas: CanvasDoc) => void;
+  /**
+   * Applies a canvas that came from another editor in the same room. Unlike
+   * `replaceCanvas` it records no history and does not mark the document dirty:
+   * undo should walk back your own edits, and the tab that made the change owns
+   * saving it.
+   */
+  applyRemoteCanvas: (canvas: CanvasDoc) => void;
+  /** True once a restore has happened, until the next save consumes it. Keeps
+   *  the restore from folding into — and so erasing — the version it came
+   *  after. */
+  versionBoundary: boolean;
+  clearVersionBoundary: () => void;
 
   // viewport
   setViewport: (vp: Viewport) => void;
@@ -102,6 +123,7 @@ interface EditorActions {
   setSpacePanning: (on: boolean) => void;
   setDuplicateOnDrag: (on: boolean) => void;
   setMarquee: (rect: Rect | null) => void;
+  setInteracting: (on: boolean) => void;
   setHovered: (id: string | null) => void;
   setEditing: (id: string | null) => void;
   setIsolated: (id: string | null) => void;
@@ -167,6 +189,7 @@ const initialState: EditorState = {
   spacePanning: false,
   duplicateOnDrag: false,
   marquee: null,
+  interacting: false,
   zOrderNonce: 0,
   showGrid: true,
   snapToGrid: true,
@@ -307,6 +330,37 @@ export const useEditorStore = create<EditorStore>()(
         s.dirty = true;
       }),
 
+    versionBoundary: false,
+
+    clearVersionBoundary: () =>
+      set((s) => {
+        s.versionBoundary = false;
+      }),
+
+    applyRemoteCanvas: (canvas) =>
+      set((s) => {
+        s.doc = canvas;
+        // Anything the local user had selected may not exist in the incoming
+        // canvas — someone else can delete what you were holding.
+        s.selection = s.selection.filter((id) => canvas.nodes[id]);
+        if (s.hoveredId && !canvas.nodes[s.hoveredId]) s.hoveredId = null;
+        if (s.editingId && !canvas.nodes[s.editingId]) s.editingId = null;
+        if (s.isolatedId && !canvas.nodes[s.isolatedId]) s.isolatedId = null;
+      }),
+
+    replaceCanvas: (canvas) =>
+      set((s) => {
+        s.doc = canvas;
+        s.versionBoundary = true;
+        // Ids come from the restored snapshot, so anything selected or being
+        // edited may no longer exist.
+        s.selection = [];
+        s.hoveredId = null;
+        s.editingId = null;
+        s.isolatedId = null;
+        s.dirty = true;
+      }),
+
     // -- viewport -----------------------------------------------------------
 
     setViewport: (vp) =>
@@ -376,6 +430,11 @@ export const useEditorStore = create<EditorStore>()(
     setMarquee: (rect) =>
       set((s) => {
         s.marquee = rect;
+      }),
+
+    setInteracting: (on) =>
+      set((s) => {
+        s.interacting = on;
       }),
 
     setHovered: (id) =>
