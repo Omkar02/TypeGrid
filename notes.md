@@ -870,6 +870,39 @@ reads as though they do not exist.
 
 ---
 
+## 2026-08-05 14:45 IST — Isometric stack overlay for z-order
+
+**Why.** Z-order is invisible while you change it. `Q`/`E` either appear to do
+nothing (when nothing overlaps) or change the picture in a way that is hard to
+attribute to the key you pressed. A transient overlay answers "where am I in the
+pile, and how much room is left" at the moment the question arises, then leaves.
+
+**Shape.** Bottom-right of the canvas, appearing on any z-order change and
+lingering 1.8s past the last one, so holding a key keeps it alive. Plates are
+drawn `rotateX(58deg) rotateZ(-45deg)` with each sibling one step up in Z.
+
+**Orthographic, not perspective.** An isometric stack should keep every plate the
+same size — distance has to read as *order*, not as depth. A perspective
+projection would shrink the far plates and imply a spatial meaning that is not
+there.
+
+**No labels on the plates.** I tried both and neither worked: skewed 45° and
+squashed 58°, a name is decoration rather than information; counter-rotated back
+out of the plane, it comes back cramped and overlapping its neighbours. The
+plates now carry only ordering and the highlight, and the active node is named
+once underneath, where it can simply be read.
+
+**Derived, never stored.** The store only carries a `zOrderNonce` counter. The
+sibling list is recomputed from the document on every render, so the overlay
+cannot show a stale stack — and it works for children inside a component, not
+just canvas roots, because "siblings" means whichever container the node is in.
+
+Deep stacks window to eight plates centred on the active one, with `+N below` /
+`+N above` beneath. Past that a stack stops reading as a stack and starts
+reading as noise.
+
+---
+
 ## Open questions / not yet built
 
 - **HTML email export.** The hard one, per the free-positioning trade-off above.

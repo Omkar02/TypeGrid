@@ -65,6 +65,12 @@ interface EditorState {
    *  `spacePanning`. */
   duplicateOnDrag: boolean;
   marquee: Rect | null;
+  /**
+   * Bumped on every z-order change. The stack overlay watches it rather than
+   * holding derived data — the sibling list it draws is always recomputed from
+   * the document, so it cannot go stale.
+   */
+  zOrderNonce: number;
   showGrid: boolean;
   snapToGrid: boolean;
   gridSize: number;
@@ -161,6 +167,7 @@ const initialState: EditorState = {
   spacePanning: false,
   duplicateOnDrag: false,
   marquee: null,
+  zOrderNonce: 0,
   showGrid: true,
   snapToGrid: true,
   gridSize: 8,
@@ -774,6 +781,7 @@ export const useEditorStore = create<EditorStore>()(
           container.splice(target, 0, id);
           writeContainer(s.doc, id, container);
         }
+        s.zOrderNonce += 1;
         s.dirty = true;
       });
     },

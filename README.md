@@ -110,7 +110,7 @@ shortcut is **rebindable**, and overrides are saved to your preferences.
 | Tools | `V` select · `H` pan |
 | Insert | `T` text · `B` button · `I` image · `R` area · `L` divider · `S` spacer |
 | Group / ungroup | `G` (toggles on the selection) |
-| Z-order | `Q` back · `E` forward · `⇧Q` to back · `⇧E` to front |
+| Z-order | `Q` back · `E` forward · `⇧Q` to back · `⇧E` to front — an isometric stack overlay shows your position while you move |
 | Duplicate | `⌘D`, or hold `D` and drag to leave the original behind |
 | Lock / hide | `⇧L` · `⇧H` |
 | Undo / redo | `⌘Z` / `⇧⌘Z` |

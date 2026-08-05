@@ -51,6 +51,7 @@ import {
 import { useEditorStore } from "@/store/editor-store";
 import { EntityView } from "@/components/canvas/entity-view";
 import { RichTextEditor } from "@/components/canvas/rich-text-editor";
+import { StackOverlay } from "@/components/canvas/stack-overlay";
 
 export const ENTITY_DRAG_TYPE = "application/x-typegrid-entity";
 export const MODULE_DRAG_TYPE = "application/x-typegrid-module";
@@ -931,6 +932,8 @@ export function InfiniteCanvas({
           />
         ) : null}
       </svg>
+
+      <StackOverlay />
 
       {/* Handles only for a single node — scaling a mixed multi-selection is
           ambiguous, so multi-select stays move-only. Linked instances get none:
