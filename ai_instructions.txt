@@ -1,0 +1,10 @@
+Objective:
+    We are building a webapp that lets user author email, website, etc basically different surfaces.
+Features
+    User will also have a flexblity of authoring in different locales
+    There will be auto translations between locales and 
+    have facalities to add medata to respective surfaces and been passed to documents with ${<some-key>} way
+        
+
+
+
